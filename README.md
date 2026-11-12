@@ -7,6 +7,7 @@ Dikembangkan dan dikelola oleh **AgusSamp**.
 ## Fitur
 
 - Launcher SA-MP Mobile.
+- Download data game otomatis di dalam aplikasi saat pertama dibuka: paket dipilih otomatis sesuai GPU (Adreno/DXT, Mali/ETC, PowerVR/PVR) dari MediaFire, tanpa perlu pilih manual — lengkap dengan progress download dan ekstrak.
 - Dukungan CEF untuk menampilkan antarmuka berbasis HTML.
 - Integrasi aset HTML melalui WebView.
 - Pengaturan IP dan port server.

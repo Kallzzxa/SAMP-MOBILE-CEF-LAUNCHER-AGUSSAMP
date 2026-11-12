@@ -32,6 +32,7 @@ import javax.microedition.khronos.egl.EGLConfig;
 import javax.microedition.khronos.opengles.GL10;
 
 import pub.devrel.easypermissions.EasyPermissions;
+import ro.alynsampmobile.launcher.utils.GameDataManager;
 import ro.alynsampmobile.launcher.utils.Logcat;
 import ro.alynsampmobile.launcher.utils.Utils;
 
@@ -312,7 +313,11 @@ public class SplashActivity extends AppCompatActivity implements GLSurfaceView.R
                             e.printStackTrace();
                         }
                     } else {
-                        startMain();
+                        // AgusSamp: data game belum ada -> tampilkan dialog
+                        // download otomatis sesuai GPU (tanpa pilih manual),
+                        // baru lanjut ke Main. Kalau data sudah terpasang,
+                        // checkAndPrepare langsung memanggil startMain().
+                        GameDataManager.checkAndPrepare(SplashActivity.this, () -> startMain());
                     }
                 }
             }
