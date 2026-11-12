@@ -10,6 +10,7 @@ Dikembangkan dan dikelola oleh **AgusSamp**.
 - Download data game otomatis di dalam aplikasi saat pertama dibuka: paket dipilih otomatis sesuai GPU (Adreno/DXT, Mali/ETC, PowerVR/PVR) dari MediaFire, tanpa perlu pilih manual — lengkap dengan progress download dan ekstrak.
 - Dukungan CEF untuk menampilkan antarmuka berbasis HTML.
 - Integrasi aset HTML melalui WebView.
+- **Dukungan CefMobile (UI web dari server):** kalau server memakai plugin CefMobile, launcher otomatis download file HTML/CSS/JS dari `scriptfiles/cef-mobile/` di server lewat HTTP port **8778** saat connect, lalu simpan di cache `<gameDir>/SAMP/cef-mobile/` — relog tidak download ulang kalau tidak ada update (cek versi + CRC32 per file). UI tampil fullscreen lewat WebView (browser id 65000) dan event dari halaman (`window.cef.emit`) dikirim balik ke server. Kalau server tidak punya plugin CefMobile, launcher diam dan game jalan seperti biasa.
 - Pengaturan IP dan port server.
 - Dukungan native Android.
 - Mendukung beberapa arsitektur ARM.

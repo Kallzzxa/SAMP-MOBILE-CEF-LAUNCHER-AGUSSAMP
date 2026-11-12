@@ -271,3 +271,30 @@ extern "C" JNIEXPORT void JNICALL Java_ro_alynsampmobile_game_ui_UI_sendDialogRe
 
 	env->ReleaseByteArrayElements(str, msg, JNI_ABORT);
 }
+
+// ------------------------------------------------------------------ CefMobile (M2)
+//
+// Java (CefMobileClient) perlu tahu server mana yang dihubungi + playerid
+// lokal + status koneksi. Semua diambil dari global pNetGame; null/-1 kalau
+// belum ada koneksi, jadi Java tidak pernah crash di sini.
+
+extern "C" JNIEXPORT jstring JNICALL Java_ro_alynsampmobile_game_SAMP_nativeGetCefMobileServer(JNIEnv* env, jobject thiz)
+{
+	if (!pNetGame || pNetGame->m_host[0] == '\0' || pNetGame->m_port <= 0) return nullptr;
+	std::string hostport = std::string(pNetGame->m_host) + ":" + std::to_string(pNetGame->m_port);
+	return env->NewStringUTF(hostport.c_str());
+}
+
+extern "C" JNIEXPORT jint JNICALL Java_ro_alynsampmobile_game_SAMP_nativeGetCefMobileGameState(JNIEnv* env, jobject thiz)
+{
+	if (!pNetGame) return -1;
+	return pNetGame->GetGameState();
+}
+
+extern "C" JNIEXPORT jint JNICALL Java_ro_alynsampmobile_game_SAMP_nativeGetCefMobilePlayerId(JNIEnv* env, jobject thiz)
+{
+	if (!pNetGame || !pNetGame->GetPlayerPool()) return -1;
+	PLAYERID id = pNetGame->GetPlayerPool()->GetLocalPlayerID();
+	if (id > 999) return -1;
+	return (jint) id;
+}

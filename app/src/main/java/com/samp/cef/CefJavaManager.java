@@ -53,6 +53,29 @@ public class CefJavaManager {
           + "id:b.getBrowserId()};})();";
 
     /**
+     * Sama seperti CEF_SHIM_JS, tapi untuk browser CefMobile (server-side
+     * plugin, port 8778): window.cef.emit diarahkan ke CefMobileBridge
+     * (POST /cef-mobile/event), BUKAN ke AndroidCefBridge/native. Hanya
+     * dipakai untuk browser yang dibuat lewat openMobileBrowser(); browser
+     * native (samp-mobile-cef) tetap memakai CEF_SHIM_JS di atas.
+     * _dispatch ditambahkan supaya event dari server (CefMobile_SendEvent)
+     * juga sampai ke halaman yang hanya mendengarkan lewat cef.on/_dispatch.
+     */
+    private static final String CEF_MOBILE_SHIM_JS =
+            "(function(){var b=window.CefMobileBridge;if(!b||(window.cef&&window.cef.emit))return;"
+          + "window.cef={emit:function(n,d){if(d===undefined||d===null)d='';"
+          + "else if(typeof d!=='string')d=JSON.stringify(d);b.postEvent(String(n),d);},"
+          + "on:function(n,f){window.addEventListener(n,function(e){f(e.detail);});},"
+          + "_dispatch:function(e,d){window.dispatchEvent(new CustomEvent(e,{detail:d}));"
+          + "if(typeof window.onCefEvent===\"function\"){window.onCefEvent(e,d);}},"
+          + "id:b.getBrowserId()};})();";
+
+    /** Dipanggil saat JS di browser CefMobile memanggil window.cef.emit(...). */
+    public interface MobileEventListener {
+        void onMobileEvent(int browserId, String event, String data);
+    }
+
+    /**
      * WebView yang bisa "tembus sentuhan". Kalau touch dimatikan, dispatchTouchEvent
      * return false sehingga event diteruskan ke view di bawahnya (UI game / SurfaceView
      * / Activity.onTouchEvent -> native).
@@ -83,6 +106,11 @@ public class CefJavaManager {
         boolean pageLoaded;
         boolean initNotified;
         boolean bridgeAttached;
+        // true = browser CefMobile (plugin server, port 8778): pakai
+        // CEF_MOBILE_SHIM_JS + CefMobileBridge, dan JANGAN pernah
+        // memberitahu native (onBrowserInit) tentang browser ini.
+        boolean mobile;
+        MobileEventListener mobileListener;
         final ArrayList<String[]> pendingEvents = new ArrayList<>();
 
         Browser(int id, CefWebView view) {
@@ -129,8 +157,14 @@ public class CefJavaManager {
 
     private void attachJsBridgeIfNeeded(Browser b) {
         CefClientManager cm = mClientManager;
-        if (b.bridgeAttached || cm == null) return;
+        if (b.mobile || b.bridgeAttached || cm == null) return;
         b.view.addJavascriptInterface(new CefWebInterface(cm, b.id), "AndroidCefBridge");
+        b.bridgeAttached = true;
+    }
+
+    private void attachMobileBridgeIfNeeded(Browser b) {
+        if (!b.mobile || b.bridgeAttached || b.mobileListener == null) return;
+        b.view.addJavascriptInterface(new CefMobileBridge(b.mobileListener, b.id), "CefMobileBridge");
         b.bridgeAttached = true;
     }
 
@@ -175,6 +209,11 @@ public class CefJavaManager {
     // ------------------------------------------------------------------ browser lifecycle (main thread)
 
     private Browser createBrowser(final int id) {
+        return createBrowser(id, false, null);
+    }
+
+    private Browser createBrowser(final int id, final boolean mobile,
+                                  final MobileEventListener mobileListener) {
         if (mBrowsers.size() >= MAX_BROWSERS) {
             Log.e(TAG, "createBrowser(" + id + ") ditolak: sudah mencapai MAX_BROWSERS=" + MAX_BROWSERS);
             return null;
@@ -199,6 +238,8 @@ public class CefJavaManager {
         CookieManager.getInstance().setAcceptThirdPartyCookies(wv, true);
 
         final Browser b = new Browser(id, wv);
+        b.mobile = mobile;
+        b.mobileListener = mobileListener;
 
         wv.setWebChromeClient(new WebChromeClient() {
             @Override
@@ -213,19 +254,22 @@ public class CefJavaManager {
             @Override
             public void onPageCommitVisible(WebView view, String url) {
                 super.onPageCommitVisible(view, url);
-                view.evaluateJavascript(CEF_SHIM_JS, null);
+                view.evaluateJavascript(b.mobile ? CEF_MOBILE_SHIM_JS : CEF_SHIM_JS, null);
             }
 
             @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
                 if (mBrowsers.get(id) != b) return; // browser sudah di-destroy
-                view.evaluateJavascript(CEF_SHIM_JS, null);
+                view.evaluateJavascript(b.mobile ? CEF_MOBILE_SHIM_JS : CEF_SHIM_JS, null);
                 Log.d(TAG, "[" + id + "] Page loaded: " + url);
 
                 b.pageLoaded = true;
                 flushPendingEvents(b);
 
+                // Browser CefMobile tidak dilaporkan ke native: plugin
+                // samp-mobile-cef tidak tahu apa-apa tentang id ini.
+                if (b.mobile) return;
                 if (!b.initNotified) {
                     b.initNotified = true;
                     CefClientManager cm = mClientManager;
@@ -240,6 +284,7 @@ public class CefJavaManager {
                 if (mBrowsers.get(id) != b) return;
                 Log.e(TAG, "[" + id + "] WebView error (" + errorCode + "): " + description + " url=" + failingUrl);
 
+                if (b.mobile) return;
                 if (!b.initNotified) {
                     b.initNotified = true;
                     CefClientManager cm = mClientManager;
@@ -255,7 +300,8 @@ public class CefJavaManager {
         ));
 
         mBrowsers.put(id, b);
-        attachJsBridgeIfNeeded(b);
+        if (mobile) attachMobileBridgeIfNeeded(b);
+        else attachJsBridgeIfNeeded(b);
         reorderViews();
 
         Log.i(TAG, "Browser " + id + " dibuat (total=" + mBrowsers.size() + ")");
@@ -278,6 +324,7 @@ public class CefJavaManager {
         b.view.setWebViewClient(new WebViewClient());
         b.view.setWebChromeClient(null);
         b.view.removeJavascriptInterface("AndroidCefBridge");
+        b.view.removeJavascriptInterface("CefMobileBridge");
 
         ViewGroup parent = (ViewGroup) b.view.getParent();
         if (parent != null) parent.removeView(b.view);
@@ -360,6 +407,45 @@ public class CefJavaManager {
 
     public void destroyBrowser(final int id) {
         mMainHandler.post(() -> forTargets(id, "destroyBrowser", this::destroyInternal));
+    }
+
+    /**
+     * Buat (kalau belum ada) browser CefMobile lalu muat url dan tampilkan.
+     * Dipanggil lagi = muat ulang url. Berbeda dengan openBrowser(): browser
+     * ini memakai CefMobileBridge + CEF_MOBILE_SHIM_JS dan tidak pernah
+     * dilaporkan ke native (samp-mobile-cef). Dipanggil dari CefMobileClient.
+     */
+    public void openMobileBrowser(final int id, final String url, final MobileEventListener listener) {
+        mMainHandler.post(() -> {
+            if (id < 0 || id >= BROWSER_ALL) {
+                Log.e(TAG, "openMobileBrowser: browser id " + id + " tidak valid");
+                return;
+            }
+            if (url == null || url.isEmpty()) {
+                Log.e(TAG, "openMobileBrowser: url is null/empty");
+                return;
+            }
+            if (listener == null) {
+                Log.e(TAG, "openMobileBrowser: listener is null");
+                return;
+            }
+
+            Browser b = mBrowsers.get(id);
+            if (b != null && !b.mobile) {
+                // id ini dipakai browser native: ganti jadi browser mobile
+                destroyInternal(b);
+                b = null;
+            }
+            if (b == null) b = createBrowser(id, true, listener);
+            if (b == null) return;
+
+            b.mobileListener = listener;
+            attachMobileBridgeIfNeeded(b);
+            b.focused = true;
+            b.view.setTouchEnabled(true);
+            startLoad(b, url);
+            showInternal(b);
+        });
     }
 
     public void showBrowser(final int id) {
@@ -539,6 +625,37 @@ public class CefJavaManager {
         }
 
         /** id browser ini (sama dengan id di CefInitBrowser). */
+        @JavascriptInterface
+        public int getBrowserId() {
+            return mBrowserId;
+        }
+    }
+
+    /**
+     * Objek JS "CefMobileBridge" untuk browser CefMobile. Dipanggil dari
+     * CEF_MOBILE_SHIM_JS saat halaman memanggil window.cef.emit(nama, data);
+     * event diteruskan ke MobileEventListener (CefMobileClient), yang
+     * me-POST-nya ke /cef-mobile/event di server. Tidak ada jalur ke native.
+     */
+    public static class CefMobileBridge {
+        private final MobileEventListener mListener;
+        private final int mBrowserId;
+
+        public CefMobileBridge(MobileEventListener listener, int browserId) {
+            this.mListener = listener;
+            this.mBrowserId = browserId;
+        }
+
+        @JavascriptInterface
+        public void postEvent(String eventName, String eventData) {
+            if (mListener != null) {
+                mListener.onMobileEvent(mBrowserId,
+                        eventName == null ? "" : eventName,
+                        eventData == null ? "" : eventData);
+            }
+        }
+
+        /** id browser ini (CefMobile memakai id 65000). */
         @JavascriptInterface
         public int getBrowserId() {
             return mBrowserId;

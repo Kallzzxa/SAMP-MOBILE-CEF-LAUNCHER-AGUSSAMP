@@ -13,6 +13,7 @@ import com.joom.paranoid.Obfuscate;
 import com.rockstargames.gtasa.GTASA;
 import com.samp.cef.CefClientManager;
 import com.samp.cef.CefJavaManager;
+import com.samp.cef.CefMobileClient;
 
 import java.io.File;
 import java.util.Objects;
@@ -30,8 +31,42 @@ public class SAMP extends GTASA {
 
     private native boolean multiTouchEvent4Ex(int action, int count, int x0, int y0, int x1, int y1, int x2, int y2, int x3, int y3);
 
+    // CefMobile: info koneksi dari native (pNetGame). Dipakai CefMobileClient
+    // untuk tahu server mana yang dihubungi + playerid lokal.
+    private native String nativeGetCefMobileServer();
+    private native int nativeGetCefMobileGameState();
+    private native int nativeGetCefMobilePlayerId();
+
+    /** "host:port" server yang sedang dihubungi, atau null kalau belum connect. */
+    public String getCefMobileServer() {
+        try {
+            return nativeGetCefMobileServer();
+        } catch (UnsatisfiedLinkError | Exception e) {
+            return null;
+        }
+    }
+
+    /** Game state native (5 = GAMESTATE_CONNECTED), atau -1 kalau tidak ada. */
+    public int getCefMobileGameState() {
+        try {
+            return nativeGetCefMobileGameState();
+        } catch (UnsatisfiedLinkError | Exception e) {
+            return -1;
+        }
+    }
+
+    /** Playerid lokal (0..999), atau -1 kalau belum join. */
+    public int getCefMobilePlayerId() {
+        try {
+            return nativeGetCefMobilePlayerId();
+        } catch (UnsatisfiedLinkError | Exception e) {
+            return -1;
+        }
+    }
+
     private CefJavaManager mJavaManager = null;
     private CefClientManager mClientManager = null;
+    private CefMobileClient mCefMobileClient = null;
 
     private void loadLibraries() {
         Log.i(TAG, "**** Loading libraries");
@@ -127,6 +162,16 @@ public class SAMP extends GTASA {
             mClientManager = new CefClientManager(this);
             mJavaManager.setClientManager(mClientManager);
             mClientManager.setJavaManager(mJavaManager);
+
+            // CefMobile (UI web dari server, port 8778): jalan di thread
+            // sendiri, diam kalau server tidak punya plugin-nya.
+            try {
+                mCefMobileClient = new CefMobileClient(this, mJavaManager);
+                mCefMobileClient.start();
+            } catch (Exception e) {
+                Log.e("SAMP_CEF", "CefMobileClient start failed: " + e.getMessage(), e);
+                mCefMobileClient = null;
+            }
 
             Log.i("SAMP_CEF", "CefJavaManager created");
             Log.i("SAMP_CEF", "CefClientManager created");
@@ -407,6 +452,13 @@ public class SAMP extends GTASA {
     @Override
     public void onDestroy() {
         Log.i(TAG, "**** onDestroy");
+        if (mCefMobileClient != null) {
+            try {
+                mCefMobileClient.stop();
+            } catch (Exception ignored) {
+            }
+            mCefMobileClient = null;
+        }
         super.onDestroy();
     }
 }
