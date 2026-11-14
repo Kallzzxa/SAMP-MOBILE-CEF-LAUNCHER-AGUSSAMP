@@ -372,11 +372,14 @@
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintStart_toStartOf="parent">
 
-        <!-- IP Pill -->
+        <!-- IP Pill (triple-tap = hidden custom server dialog) -->
         <LinearLayout
+            android:id="@+id/serverAddressPill"
             android:layout_width="wrap_content"
             android:layout_height="@dimen/_24sdp"
             android:background="@drawable/bg_server_pill"
+            android:clickable="true"
+            android:focusable="true"
             android:gravity="center_vertical"
             android:orientation="horizontal"
             android:paddingStart="@dimen/_8sdp"
